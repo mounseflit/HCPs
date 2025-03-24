@@ -77,15 +77,19 @@ Content: {website_text}
 Return result as a valid JSON object with these exact fields, nothing else.
 """
     try:
-        response = openai.chat.completions.create(
-         model="gpt-4-turbo-preview",  # or use your preferred model
-         messages=[
-             {"role": "system", "content": "You extract structured company information from web pages."},
-             {"role": "user", "content": prompt}
-         ],
-         response_format={"type": "json_object"},
-        )
-        return response["choices"][0]["message"]["content"]
+        # Use picoapps API with a simple request
+        urlapi = f"https://a.picoapps.xyz/ask-ai?prompt={prompt}"
+        response = requests.get(urlapi)
+        
+        # Process the response
+        if response.status_code == 200:
+            data = response.json()
+            if "response" in data:
+                return data["response"]
+            else:
+                return data 
+        else:
+            raise Exception(f"API request failed with status {response.status_code}: {response.text}")
     except Exception as e:
         print(f"Error parsing GPT response: {e}")
         return "{}"
@@ -172,16 +176,20 @@ def analyze_individual_link(hcp_name, link_data):
     """
     
     try:
-        response = openai.chat.completions.create(
-         model="gpt-4-turbo-preview",  # or use your preferred model
-         messages=[
-             {"role": "system", "content": "You extract structured healthcare provider information from web content with high precision."},
-             {"role": "user", "content": prompt}
-         ],
-         response_format={"type": "json_object"},
-        )
-        return response["choices"][0]["message"]["content"]
+        # Use picoapps API with a simple request
+        urlapi = f"https://a.picoapps.xyz/ask-ai?prompt={prompt}"
+        response = requests.get(urlapi)
         
+        # Process the response
+        if response.status_code == 200:
+            data = response.json()
+            if "response" in data:
+                return data["response"]
+            else:
+                return data 
+        else:
+            raise Exception(f"API request failed with status {response.status_code}: {response.text}")
+    
     except Exception as e:
         st.error(f"Error analyzing individual link: {e}")
         return "{}"
@@ -217,7 +225,7 @@ def extract_info_from_links(hcp_name, scraped_links):
     sources_data = json.dumps(link_analyses, indent=2)
     
     aggregate_prompt = f"""
-    You are an expert data analyst specializing in healthcare provider information.
+    You are an expert data analyst specializing in healthcare provider information.You aggregate and analyze healthcare data from multiple sources to create accurate profiles.
     
     Below is data extracted from {len(link_analyses)} different sources about {hcp_name}.
     Your job is to analyze all sources and create the most accurate, complete profile.
@@ -246,15 +254,19 @@ def extract_info_from_links(hcp_name, scraped_links):
     """
     
     try:
-        response = openai.chat.completions.create(
-         model="gpt-4-turbo-preview",  # or use your preferred model
-         messages=[
-             {"role": "system", "content": "You aggregate and analyze healthcare data from multiple sources to create accurate profiles."},
-             {"role": "user", "content": aggregate_prompt}
-         ],
-         response_format={"type": "json_object"},
-        )
-        return response["choices"][0]["message"]["content"]
+        # Use picoapps API with a simple request
+        urlapi = f"https://a.picoapps.xyz/ask-ai?prompt={aggregate_prompt}"
+        response = requests.get(urlapi)
+        
+        # Process the response
+        if response.status_code == 200:
+            data = response.json()
+            if "response" in data:
+                return data["response"]
+            else:
+                return data 
+        else:
+            raise Exception(f"API request failed with status {response.status_code}: {response.text}")
     except Exception as e:
         st.error(f"Error in final aggregation: {e}")
         return "{}"
