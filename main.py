@@ -4,9 +4,14 @@ from bs4 import BeautifulSoup
 from duckduckgo_search import DDGS
 import openai
 import streamlit as st
+import json
+import time
+from concurrent.futures import ThreadPoolExecutor
 
+# API keys from Streamlit secrets
 openai.api_key = st.secrets["OPENAI_API_KEY"]
 serpapikey = st.secrets["SERPAPI_API_KEY"]
+
 # --- Tools ---
 
 def search_google_duckduckgo(query, max_results=10):
@@ -51,7 +56,7 @@ def scrape_contact_info(url):
 
 # --- Extract info using OpenAI ---
 
-def extract_info_with_gpt(hcp_name, website_text, url):
+def extract_info_with_gpt(hcp_name, website_text, urls):
     prompt = f"""
 You are an assistant extracting business data from hospital or medical institution content.
 
@@ -66,104 +71,252 @@ From the following information and context, extract the following fields:
 
 Context:
 Institution: {hcp_name}
-Website: {url}
+Websites: {urls}
 Content: {website_text}
-
-ADDITIONAL DATA : {search_with_serp(hcp_name, "United Arab Emirates")}
 
 Return result as a valid JSON object with these exact fields, nothing else.
 """
-    response = openai.chat.completions.create(
-        model="gpt-4-turbo-preview",  # or use your preferred model
-        messages=[
-            {"role": "system", "content": "You extract structured company information from web pages."},
-            {"role": "user", "content": prompt}
-        ],
-        response_format={"type": "json_object"},
-    )
-    
     try:
-        return response.choices[0].message.content
+        response = openai.ChatCompletion.create(
+            model="gpt-4-turbo",  # Corrected model name
+            messages=[
+                {"role": "system", "content": "You extract structured company information from web pages."},
+                {"role": "user", "content": prompt}
+            ]
+        )
+        return response["choices"][0]["message"]["content"]
     except Exception as e:
         print(f"Error parsing GPT response: {e}")
         return "{}"
 
 # --- Main Function ---
 
-def deep_search_links(hcp_name, max_links=5):
+def deep_search_links(hcp_name, max_links=8):
     """
-    Perform a deep search by scraping content from multiple links.
+    Enhanced deep search by scraping content from multiple links with improved query strategy.
     """
-    results = search_google_duckduckgo(f"{hcp_name} hospital or clinic")
+    results = []
+    
+    # Use multiple queries to get more diverse results
+    queries = [
+        f"{hcp_name} official website",
+        f"{hcp_name} hospital contact information",
+        f"{hcp_name} clinic address phone",
+        f"{hcp_name} healthcare provider details",
+        f"{hcp_name} revenue financial information"
+    ]
+    
+    for query in queries:
+        try:
+            results.extend(search_google_duckduckgo(query, max_results=5))
+        except Exception as e:
+            st.error(f"Search error for '{query}': {e}")
+    
+    # Deduplicate results by URL
+    unique_urls = {}
+    for r in results:
+        url = r.get("href")
+        if url and url not in unique_urls:
+            unique_urls[url] = r
+    
+    # Process each URL concurrently for faster scraping
     scraped_content = []
     
-    for r in results[:max_links]:
-        url = r.get("href")
-        if url:
-            try:
-                print(f"Scraping URL: {url}")
-                content = scrape_contact_info(url)
-                if content:
-                    scraped_content.append({"url": url, "content": content})
-            except Exception as e:
-                print(f"Failed to scrape {url}: {e}")
-    
+    with st.spinner("Searching and analyzing multiple sources..."):
+        with ThreadPoolExecutor(max_workers=5) as executor:
+            def scrape_url(item):
+                url = item[0]
+                result = item[1]
+                title = result.get("title", "")
+                
+                try:
+                    content = scrape_contact_info(url)
+                    if content:
+                        return {"url": url, "title": title, "content": content}
+                except Exception as e:
+                    st.error(f"Failed to scrape {url}: {e}")
+                return None
+            
+            for result in executor.map(scrape_url, list(unique_urls.items())[:max_links]):
+                if result:
+                    scraped_content.append(result)
+                    
     return scraped_content
+
+def analyze_individual_link(hcp_name, link_data):
+    """
+    Analyze a single link's data to extract HCP information
+    """
+    prompt = f"""
+    You are an expert at extracting healthcare provider data from web content.
+    
+    From the following web content about {hcp_name}, extract these fields if present:
+    - HCP Name (exact official name)
+    - Status (e.g. Hospital, Clinic, Rehabilitation Center)
+    - Address (full postal address)
+    - Contact Person (CEO / MD / Director names and titles)
+    - Contact Number (all phone numbers)
+    - Email Addresses
+    - Website URL
+    - Net Revenue (any revenue/financial data, in USD or AED)
+    - Number of beds (if applicable)
+    - Services offered (main medical specialties)
+    
+    Source: {link_data['url']}
+    Title: {link_data['title']}
+    
+    Content: {link_data['content'][:3500]}
+    
+    Return ONLY a JSON object with these fields, nothing else. If information is not found, use empty string.
+    """
+    
+    try:
+        response = openai.ChatCompletion.create(
+            model="gpt-4",
+            messages=[
+                {"role": "system", "content": "You extract structured healthcare provider information from web content with high precision."},
+                {"role": "user", "content": prompt}
+            ],
+            temperature=0.2,  # Lower temperature for more factual responses
+        )
+        return response["choices"][0]["message"]["content"]
+    except Exception as e:
+        st.error(f"Error analyzing individual link: {e}")
+        return "{}"
 
 def extract_info_from_links(hcp_name, scraped_links):
     """
-    Extract information from the scraped content of multiple links.
+    Enhanced analysis: Extract information from each source independently, then aggregate
     """
-    combined_content = " ".join([link["content"] for link in scraped_links])
-    urls = ", ".join([link["url"] for link in scraped_links])
+    if not scraped_links:
+        return "{}"
     
-    return extract_info_with_gpt(hcp_name, combined_content, urls)
+    # Analyze each link individually
+    link_analyses = []
+    
+    with st.spinner(f"Analyzing {len(scraped_links)} sources for {hcp_name}..."):
+        progress_bar = st.progress(0)
+        for i, link in enumerate(scraped_links):
+            analysis_json = analyze_individual_link(hcp_name, link)
+            try:
+                analysis = json.loads(analysis_json)
+                analysis["source"] = link["url"]
+                link_analyses.append(analysis)
+            except json.JSONDecodeError:
+                st.error(f"Failed to parse analysis for {link['url']}")
+            
+            # Update progress bar
+            progress_bar.progress((i + 1) / len(scraped_links))
+            # Small delay to avoid API rate limits
+            time.sleep(0.5)
+    
+    # Combine all analyses for final determination
+    urls = "\n".join([f"- {link['url']}" for link in scraped_links])
+    sources_data = json.dumps(link_analyses, indent=2)
+    
+    aggregate_prompt = f"""
+    You are an expert data analyst specializing in healthcare provider information.
+    
+    Below is data extracted from {len(link_analyses)} different sources about {hcp_name}.
+    Your job is to analyze all sources and create the most accurate, complete profile.
+    
+    When sources disagree:
+    1. Prefer information from official sources
+    2. Look for consistency across multiple sources
+    3. Choose the most specific and detailed information
+    
+    Sources analyzed:
+    {urls}
+    
+    Source data:
+    {sources_data}
+    
+    Create a final, accurate profile with these fields:
+    - HCP Name (the most accurate, complete version)
+    - Status (e.g. Hospital, Clinic, Rehabilitation Center)
+    - Address (most complete postal address)
+    - Contact Person (CEO/Director's name and title)
+    - Contact Number (main contact number)
+    - Website URL (official website)
+    - Net Revenue (most accurate figure, specify currency and year if available)
+    
+    Return ONLY a valid JSON object with exactly these fields.
+    """
+    
+    try:
+        response = openai.ChatCompletion.create(
+            model="gpt-4", 
+            messages=[
+                {"role": "system", "content": "You aggregate and analyze healthcare data from multiple sources to create accurate profiles."},
+                {"role": "user", "content": aggregate_prompt}
+            ],
+            temperature=0.1,  # Very low temperature for consistent output
+        )
+        return response["choices"][0]["message"]["content"]
+    except Exception as e:
+        st.error(f"Error in final aggregation: {e}")
+        return "{}"
 
 def process_hcp(hcp_name):
     """
-    Process a single HCP by performing a deep search and extracting information.
+    Process a single HCP with enhanced deep search and analysis
     """
-    scraped_links = deep_search_links(hcp_name)
-    if not scraped_links:
+    with st.status(f"Processing {hcp_name}...") as status:
+        status.update(label="Starting deep search...")
+        scraped_links = deep_search_links(hcp_name)
+        
+        if not scraped_links:
+            status.update(label="No results found", state="error")
+            return {
+                "HCP Name": hcp_name,
+                "Status": "Not Found",
+                "Address": "",
+                "Contact Person": "",
+                "Contact Number": "",
+                "URL Website": "",
+                "Net Revenue": ""
+            }
+        
+        status.update(label=f"Analyzing {len(scraped_links)} sources...")
+        extracted_data_json = extract_info_from_links(hcp_name, scraped_links)
+        
+        # Parse the JSON string to dictionary
+        try:
+            extracted_data = json.loads(extracted_data_json)
+            status.update(label="Analysis complete", state="complete")
+        except:
+            status.update(label="Error parsing results", state="error")
+            extracted_data = {}
+        
         return {
-            "HCP Name": hcp_name,
-            "Status": "Not Found",
-            "Address": "",
-            "Contact Person": "",
-            "Contact Number": "",
-            "URL Website": "",
-            "Net Revenue": ""
+            "HCP Name": extracted_data.get("HCP Name", hcp_name),
+            "Status": extracted_data.get("Status", ""),
+            "Address": extracted_data.get("Address", ""),
+            "Contact Person": extracted_data.get("Contact Person", ""),
+            "Contact Number": extracted_data.get("Contact Number", ""),
+            "URL Website": extracted_data.get("Website URL", ""),
+            "Net Revenue": extracted_data.get("Net Revenue", "")
         }
-    
-    extracted_data_json = extract_info_from_links(hcp_name, scraped_links)
-    
-    # Parse the JSON string to dictionary
-    import json
-    try:
-        extracted_data = json.loads(extracted_data_json)
-    except:
-        extracted_data = {}
-    
-    return {
-        "HCP Name": extracted_data.get("HCP Name", hcp_name),
-        "Status": extracted_data.get("Status", ""),
-        "Address": extracted_data.get("Address", ""),
-        "Contact Person": extracted_data.get("Contact Person", ""),
-        "Contact Number": extracted_data.get("Contact Number", ""),
-        "URL Website": ", ".join([link["url"] for link in scraped_links]),
-        "Net Revenue": extracted_data.get("Net Revenue", "")
-    }
 
-
-def process_csv(input_df):
+def process_csv(file_path):
+    """
+    Process multiple HCPs from a CSV file with progress tracking
+    """
+    df = pd.read_csv(file_path)
     results = []
-    for hcp_name in input_df["HCP NAME"]:
-        print(f"Processing: {hcp_name}")
+    total = len(df)
+    
+    progress_bar = st.progress(0)
+    status_text = st.empty()
+    
+    for i, hcp_name in enumerate(df["HCP NAME"]):
+        status_text.text(f"Processing {i+1}/{total}: {hcp_name}")
         result = process_hcp(hcp_name)
-        print(result)
         results.append(result)
+        progress_bar.progress((i + 1) / total)
+    
+    status_text.text("Processing complete!")
     return pd.DataFrame(results)
-
 
 # --- Streamlit Interface ---
 st.title("HCP Data Enrichment Tool")
@@ -187,7 +340,7 @@ elif option == "Upload a CSV File":
     if uploaded_file:
         st.write("Processing the uploaded file...")
         input_df = pd.read_csv(uploaded_file)
-        results_df = process_csv(input_df)
+        results_df = process_csv(uploaded_file)
         
         st.write("### Enriched Data")
         st.dataframe(results_df)
