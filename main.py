@@ -321,34 +321,163 @@ def process_csv(file_path):
 # --- Streamlit Interface ---
 st.title("HCP Data Enrichment Tool")
 
-# Add a selection for single hospital or CSV upload
-option = st.radio("Choose an option:", ["Search a Single Hospital", "Upload a CSV File"])
+# Create tabs for main functionality and documentation
+tab1, tab2 = st.tabs(["Main Tool", "Documentation"])
 
-if option == "Search a Single Hospital":
-    hcp_name = st.text_input("Enter the name of the hospital or clinic:")
-    if st.button("Search"):
-        if hcp_name:
-            st.write(f"Processing: {hcp_name}")
-            result = process_hcp(hcp_name)
-            st.write("### Result")
-            st.json(result)
-        else:
-            st.warning("Please enter a hospital or clinic name.")
+with tab1:
+    # Add a selection for single hospital or CSV upload
+    option = st.radio("Choose an option:", ["Search a Single Hospital", "Upload a CSV File"])
+    
+    if option == "Search a Single Hospital":
+        hcp_name = st.text_input("Enter the name of the hospital or clinic:")
+        if st.button("Search"):
+            if hcp_name:
+                st.write(f"Processing: {hcp_name}")
+                result = process_hcp(hcp_name)
+                st.write("### Result")
+                st.json(result)
+            else:
+                st.warning("Please enter a hospital or clinic name.")
+    
+    elif option == "Upload a CSV File":
+        uploaded_file = st.file_uploader("Upload a CSV file with a column named 'HCP NAME'", type=["csv"])
+        if uploaded_file:
+            st.write("Processing the uploaded file...")
+            input_df = pd.read_csv(uploaded_file)
+            results_df = process_csv(uploaded_file)
+            
+            st.write("### Enriched Data")
+            st.dataframe(results_df)
+            
+            csv = results_df.to_csv(index=False).encode('utf-8')
+            st.download_button(
+                label="Download Enriched Data as CSV",
+                data=csv,
+                file_name="enriched_hcp_data.csv",
+                mime="text/csv",
+            )
 
-elif option == "Upload a CSV File":
-    uploaded_file = st.file_uploader("Upload a CSV file with a column named 'HCP NAME'", type=["csv"])
-    if uploaded_file:
-        st.write("Processing the uploaded file...")
-        input_df = pd.read_csv(uploaded_file)
-        results_df = process_csv(uploaded_file)
-        
-        st.write("### Enriched Data")
-        st.dataframe(results_df)
-        
-        csv = results_df.to_csv(index=False).encode('utf-8')
-        st.download_button(
-            label="Download Enriched Data as CSV",
-            data=csv,
-            file_name="enriched_hcp_data.csv",
-            mime="text/csv",
-        )
+with tab2:
+    st.header("Technical Documentation")
+    
+    st.subheader("Architecture Overview")
+    st.markdown("""
+    This tool uses a multi-stage pipeline to gather and analyze healthcare provider information:
+    
+    1. **Data Collection Layer**
+       - DuckDuckGo Search API for initial web discovery
+       - SerpAPI for additional search results
+       - Web scraping with BeautifulSoup4
+       - Concurrent execution with ThreadPoolExecutor
+    
+    2. **Analysis Layer**
+       - OpenAI GPT-4 for text analysis
+       - Multi-stage analysis pipeline
+       - Source validation and cross-referencing
+    
+    3. **Data Processing Pipeline**
+       ```mermaid
+       graph TD
+           A[Input: HCP Name] --> B[Deep Search]
+           B --> C[Multi-Source Scraping]
+           C --> D[Individual Source Analysis]
+           D --> E[Data Aggregation]
+           E --> F[Final Profile Generation]
+       ```
+    """)
+    
+    st.subheader("Search Methodology")
+    st.markdown("""
+    The deep search process includes:
+    
+    - Multiple search queries per institution
+    - URL deduplication
+    - Concurrent web scraping
+    - Content validation
+    - Rate limiting and error handling
+    """)
+    
+    with st.expander("Detailed Search Process"):
+        st.code("""
+def deep_search_links(hcp_name, max_links=8):
+    # Multiple targeted queries
+    queries = [
+        f"{hcp_name} official website",
+        f"{hcp_name} hospital contact information",
+        # ... other queries
+    ]
+    
+    # Concurrent scraping with ThreadPoolExecutor
+    with ThreadPoolExecutor(max_workers=5) as executor:
+        # ... scraping process
+        """)
+    
+    st.subheader("AI Analysis Pipeline")
+    st.markdown("""
+    Three-stage AI analysis process:
+    
+    1. **Individual Source Analysis**
+       - Extracts structured data from each source
+       - Validates data consistency
+       - Assigns confidence scores
+    
+    2. **Cross-Source Validation**
+       - Compares data across sources
+       - Identifies conflicts
+       - Weighs source reliability
+    
+    3. **Final Profile Generation**
+       - Aggregates validated information
+       - Resolves conflicts
+       - Generates comprehensive profile
+    """)
+    
+    with st.expander("AI Prompting Strategy"):
+        st.markdown("""
+        The system uses carefully crafted prompts with:
+        - Clear role definitions
+        - Structured output requirements
+        - Source prioritization rules
+        - Conflict resolution guidelines
+        """)
+    
+    st.subheader("Data Fields")
+    st.markdown("""
+    | Field | Description | Source Priority |
+    |-------|-------------|-----------------|
+    | HCP Name | Official institution name | Official websites |
+    | Status | Type of healthcare facility | Multiple sources |
+    | Address | Physical location | Official + Maps |
+    | Contact Person | Key personnel | Official + LinkedIn |
+    | Contact Number | Primary contact | Official website |
+    | Website URL | Official web presence | Verified sources |
+    | Net Revenue | Financial information | Multiple sources |
+    """)
+    
+    st.subheader("Error Handling")
+    st.markdown("""
+    The system implements comprehensive error handling:
+    - Connection timeouts
+    - API rate limiting
+    - Content validation
+    - Data consistency checks
+    - Graceful degradation
+    """)
+    
+    st.subheader("Performance Optimization")
+    st.markdown("""
+    - Concurrent web scraping
+    - Content length optimization
+    - API call batching
+    - Response caching
+    - Progressive loading
+    """)
+    
+    st.subheader("API Dependencies")
+    st.json({
+        "OpenAI GPT-4": "Text analysis and data extraction",
+        "DuckDuckGo": "Initial web search",
+        "SerpAPI": "Additional search results",
+        "BeautifulSoup4": "Web scraping",
+        "ThreadPoolExecutor": "Concurrent execution"
+    })
