@@ -154,15 +154,16 @@ def process_hcp(hcp_name):
         "Net Revenue": extracted_data.get("Net Revenue", "")
     }
 
-def process_csv(file_path):
-    df = pd.read_csv(file_path)
+
+def process_csv(input_df):
     results = []
-    for hcp_name in df["HCP NAME"]:
+    for hcp_name in input_df["HCP NAME"]:
         print(f"Processing: {hcp_name}")
         result = process_hcp(hcp_name)
         print(result)
         results.append(result)
     return pd.DataFrame(results)
+
 
 # --- Streamlit Interface ---
 st.title("HCP Data Enrichment Tool")
@@ -186,7 +187,7 @@ elif option == "Upload a CSV File":
     if uploaded_file:
         st.write("Processing the uploaded file...")
         input_df = pd.read_csv(uploaded_file)
-        results_df = process_csv(uploaded_file)
+        results_df = process_csv(input_df)
         
         st.write("### Enriched Data")
         st.dataframe(results_df)
