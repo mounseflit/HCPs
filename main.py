@@ -77,13 +77,14 @@ Content: {website_text}
 Return result as a valid JSON object with these exact fields, nothing else.
 """
     try:
-        response = openai.ChatCompletion.create(
-            model="gpt-4-turbo",  # Corrected model name
-            messages=[
-                {"role": "system", "content": "You extract structured company information from web pages."},
-                {"role": "user", "content": prompt}
-            ]
-        )
+       response = openai.chat.completions.create(
+         model="gpt-4-turbo-preview",  # or use your preferred model
+         messages=[
+             {"role": "system", "content": "You extract structured company information from web pages."},
+             {"role": "user", "content": prompt}
+         ],
+         response_format={"type": "json_object"},
+       )
         return response["choices"][0]["message"]["content"]
     except Exception as e:
         print(f"Error parsing GPT response: {e}")
@@ -171,15 +172,16 @@ def analyze_individual_link(hcp_name, link_data):
     """
     
     try:
-        response = openai.ChatCompletion.create(
-            model="gpt-4",
-            messages=[
-                {"role": "system", "content": "You extract structured healthcare provider information from web content with high precision."},
-                {"role": "user", "content": prompt}
-            ],
-            temperature=0.2,  # Lower temperature for more factual responses
-        )
+        response = openai.chat.completions.create(
+         model="gpt-4-turbo-preview",  # or use your preferred model
+         messages=[
+             {"role": "system", "content": "You extract structured healthcare provider information from web content with high precision."},
+             {"role": "user", "content": prompt}
+         ],
+         response_format={"type": "json_object"},
+       )
         return response["choices"][0]["message"]["content"]
+        
     except Exception as e:
         st.error(f"Error analyzing individual link: {e}")
         return "{}"
@@ -244,14 +246,14 @@ def extract_info_from_links(hcp_name, scraped_links):
     """
     
     try:
-        response = openai.ChatCompletion.create(
-            model="gpt-4", 
-            messages=[
-                {"role": "system", "content": "You aggregate and analyze healthcare data from multiple sources to create accurate profiles."},
-                {"role": "user", "content": aggregate_prompt}
-            ],
-            temperature=0.1,  # Very low temperature for consistent output
-        )
+       response = openai.chat.completions.create(
+         model="gpt-4-turbo-preview",  # or use your preferred model
+         messages=[
+             {"role": "system", "content": "You aggregate and analyze healthcare data from multiple sources to create accurate profiles."},
+             {"role": "user", "content": aggregate_prompt}
+         ],
+         response_format={"type": "json_object"},
+       )
         return response["choices"][0]["message"]["content"]
     except Exception as e:
         st.error(f"Error in final aggregation: {e}")
