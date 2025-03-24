@@ -1,5 +1,5 @@
 pandas
-BeautifulSoup
+bs4
 duckduckgo_search
 openai
 streamlit
